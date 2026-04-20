@@ -559,24 +559,9 @@ function doGenerate() {
   // ASSIGN H
   var bebanH={}, assignH={};
   asesorList.forEach(function(a){bebanH[a]=0});
-  var bebanBebas={};
-  asesorList.forEach(function(a){bebanBebas[a]=0});
-  var asesorBelumDapat=new Set(asesorList);
 
-  kelompokBebas.forEach(function(k){
-    (kelompokPeserta[k]||[]).forEach(function(p){
-      var kandidat=asesorList.filter(function(a){return bebanBebas[a]<maksBebas&&bebanH[a]<(targetH[a]||0)&&!larangan.has(a+'|'+p.nama)});
-      var belum=kandidat.filter(function(a){return asesorBelumDapat.has(a)});
-      var pool=belum.length?belum:kandidat;
-      if(!pool.length) pool=asesorList.filter(function(a){return bebanBebas[a]<maksBebas&&!larangan.has(a+'|'+p.nama)});
-      if(pool.length){
-        var t=pool.reduce(function(best,a){return (targetH[a]||0)-bebanH[a]>(targetH[best]||0)-bebanH[best]?a:best},pool[0]);
-        assignH[p.nama]=t; bebanH[t]++; bebanBebas[t]++; asesorBelumDapat.delete(t);
-      }
-    });
-  });
-
-  var kelompokTerikat=Object.keys(kelompokPeserta).map(Number).filter(function(k){return !kelompokBebas.has(k)}).sort(function(a,b){return kelompokPeserta[b].length-kelompokPeserta[a].length});
+  // Semua kelompok diperlakukan sama (kelompok dibentuk otomatis dari tab 1)
+  var kelompokTerikat=Object.keys(kelompokPeserta).map(Number).sort(function(a,b){return kelompokPeserta[b].length-kelompokPeserta[a].length});
   kelompokTerikat.forEach(function(k){
     var members=kelompokPeserta[k]||[], ukuran=members.length, sisa=ukuran, segs=[];
     var cukup=asesorList.filter(function(a){return (targetH[a]||0)-bebanH[a]>=ukuran&&members.every(function(p){return !larangan.has(a+'|'+p.nama)})});
@@ -651,7 +636,7 @@ function doGenerate() {
   var pesertaSorted=peserta.slice().sort(function(a,b){return a.kelompok-b.kelompok||peserta.indexOf(a)-peserta.indexOf(b)});
   pesertaSorted.forEach(function(p){
     var ah=assignH[p.nama]; if(!ah)return;
-    var start=(kelompokBebas.has(p.kelompok)||p.kelompok>batasK)?slotK2:slotK1;
+    var start=getSlotMulaiForKelompok(p.kelompok);
     for(var si=start;si<slots.length;si++){if(!slotTerpakai[ah].has(si)){pesertaSlot[p.nama]=si;slotTerpakai[ah].add(si);break;}}
   });
 
