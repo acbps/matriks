@@ -87,6 +87,18 @@ input:focus{outline:none;border-color:#888}
 .dot.err{background:#dc2626}
 .dot.warn{background:#f59e0b}
 .preview-mini{max-height:200px;overflow-y:auto}
+.ketersediaan-wrap{overflow-x:auto;border-radius:8px;border:1px solid #e5e5e5;margin-top:8px}
+.ketersediaan-tbl{border-collapse:collapse;font-size:12px;white-space:nowrap}
+.ketersediaan-tbl th{background:#f5f5f0;padding:6px 10px;text-align:center;font-weight:600;border:1px solid #e5e5e5;position:sticky;top:0}
+.ketersediaan-tbl th.asesor-col{text-align:left;min-width:160px;position:sticky;left:0;z-index:2;background:#f5f5f0}
+.ketersediaan-tbl td{padding:4px 6px;border:1px solid #f0f0f0;text-align:center}
+.ketersediaan-tbl td.asesor-name{text-align:left;font-weight:500;padding:4px 10px;background:#fff;position:sticky;left:0;border-right:1px solid #e5e5e5}
+.ketersediaan-tbl td.asesor-name:hover{background:#fafafa}
+.slot-toggle{width:28px;height:28px;border-radius:6px;border:1px solid #ddd;background:#fff;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;margin:0 auto;transition:all .15s}
+.slot-toggle.available{background:#d1fae5;border-color:#6ee7b7;color:#065f46}
+.slot-toggle.unavailable{background:#f5f5f0;border-color:#e5e5e5;color:#ccc}
+.date-header{background:#dbeafe!important;color:#1e40af!important}
+
 .kelompok-card{background:#fff;border:1px solid #e5e5e5;border-radius:10px;padding:12px 14px;margin-bottom:10px}
 .kelompok-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .kelompok-title{font-weight:600;font-size:13px;color:#1a1a1a}
@@ -207,6 +219,19 @@ input:focus{outline:none;border-color:#888}
   <div id="tab-aturan" class="panel">
 
 
+
+    <div class="section" id="ketersediaan-section" style="display:none">
+      <div class="section-title">Ketersediaan Asesor per Slot</div>
+      <div class="hint" style="margin-bottom:8px">Klik kotak untuk toggle tersedia/tidak. Hijau = tersedia, abu = tidak tersedia. Asesor yang tidak tersedia di suatu slot tidak akan dijadwalkan di slot itu.</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="btn sm" onclick="setSemuaKetersediaan(true)">Semua Tersedia</button>
+        <button class="btn sm" onclick="setSemuaKetersediaan(false)">Semua Tidak Tersedia</button>
+      </div>
+      <div class="ketersediaan-wrap">
+        <table class="ketersediaan-tbl" id="ketersediaan-tbl"></table>
+      </div>
+    </div>
+
     <div class="section">
       <div class="section-title">Aturan Partner Asesor (Kolom I)</div>
       <div class="hint" style="margin-bottom:6px">Format: <code>Nama Asesor | Partner Default | Blacklist (pisah koma) | Maks Partner</code></div>
@@ -246,6 +271,7 @@ var DATA = {peserta:[], asesor:[], slots:[], larangan:new Set(), asesorAktif:new
 var STATE = {};
 
 function showTab(name) {
+  if (name==='aturan' && DATA.slots.length && DATA.asesor.length) { initKetersediaan(); }
   ['upload','aturan','generate','hasil'].forEach(function(n,i){
     document.querySelectorAll('.tab')[i].classList.toggle('active', n===name);
     document.getElementById('tab-'+n).classList.toggle('active', n===name);
@@ -475,6 +501,8 @@ function parseWorkbook(wb, fname) {
   document.getElementById('preview-section').style.display = 'block';
   renderAsesorChecklist();
   generateKelompok();
+  if (!DATA.ketersediaan) DATA.ketersediaan = {};
+  DATA.asesor.forEach(function(a){ if(!DATA.ketersediaan[a.nama]) DATA.ketersediaan[a.nama] = new Set(DATA.slots.map(function(_,i){return i})); });
 }
 
 function showUploadStatus(type, msg) {
@@ -637,7 +665,12 @@ function doGenerate() {
   pesertaSorted.forEach(function(p){
     var ah=assignH[p.nama]; if(!ah)return;
     var start=getSlotMulaiForKelompok(p.kelompok);
-    for(var si=start;si<slots.length;si++){if(!slotTerpakai[ah].has(si)){pesertaSlot[p.nama]=si;slotTerpakai[ah].add(si);break;}}
+    var ketersediaanAh = getKetersediaanAsesor(ah);
+    for(var si=start;si<slots.length;si++){
+      if(!slotTerpakai[ah].has(si) && ketersediaanAh.has(si)){
+        pesertaSlot[p.nama]=si;slotTerpakai[ah].add(si);break;
+      }
+    }
   });
 
   STATE={peserta,asesorList,slots,assignH,assignI,pesertaSlot,bebanH,bebanI,targetH,targetI,partnerSet};
@@ -825,6 +858,94 @@ function downloadCSV(type){
   var csv=rows.map(function(r){return r.map(esc).join(',')}).join('\r\n');
   var blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
   var url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=fname;a.click();URL.revokeObjectURL(url);
+}
+
+
+// ── KETERSEDIAAN ASESOR ──
+function initKetersediaan() {
+  // Default: semua asesor tersedia di semua slot
+  if (!DATA.ketersediaan) {
+    DATA.ketersediaan = {};
+    DATA.asesor.forEach(function(a) {
+      DATA.ketersediaan[a.nama] = new Set(DATA.slots.map(function(_,i){return i}));
+    });
+  }
+  renderKetersediaan();
+  document.getElementById('ketersediaan-section').style.display = 'block';
+}
+
+function renderKetersediaan() {
+  var slots = DATA.slots;
+  var asesorList = DATA.asesor.filter(function(a){ return DATA.asesorAktif.has(a.nama); });
+  if (!slots.length || !asesorList.length) return;
+
+  // Group slots by date
+  var dateGroups = {}, dateOrder = [];
+  slots.forEach(function(sl, si) {
+    if (!dateGroups[sl.tanggal]) { dateGroups[sl.tanggal] = []; dateOrder.push(sl.tanggal); }
+    dateGroups[sl.tanggal].push(si);
+  });
+
+  var html = '<thead><tr><th class="asesor-col">Asesor</th>';
+  dateOrder.forEach(function(d) {
+    html += '<th class="date-header" colspan="' + dateGroups[d].length + '">' + d + '</th>';
+  });
+  html += '</tr><tr><th class="asesor-col"></th>';
+  slots.forEach(function(sl) {
+    html += '<th>' + sl.mulai + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  asesorList.forEach(function(a, ai) {
+    var avail = DATA.ketersediaan[a.nama] || new Set();
+    html += '<tr><td class="asesor-name">' + a.nama + '</td>';
+    slots.forEach(function(_, si) {
+      var isAvail = avail.has(si);
+      html += '<td><div class="slot-toggle ' + (isAvail?'available':'unavailable') + '" '
+        + 'onclick="toggleKetersediaan('' + a.nama.replace(/'/g,"\'") + '',' + si + ',this)" '
+        + 'title="' + (isAvail?'Tersedia':'Tidak tersedia') + '">'
+        + (isAvail ? '✓' : '–') + '</div></td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody>';
+
+  document.getElementById('ketersediaan-tbl').innerHTML = html;
+}
+
+function toggleKetersediaan(nama, si, el) {
+  if (!DATA.ketersediaan[nama]) DATA.ketersediaan[nama] = new Set();
+  var avail = DATA.ketersediaan[nama];
+  if (avail.has(si)) {
+    avail.delete(si);
+    el.className = 'slot-toggle unavailable';
+    el.textContent = '–';
+    el.title = 'Tidak tersedia';
+  } else {
+    avail.add(si);
+    el.className = 'slot-toggle available';
+    el.textContent = '✓';
+    el.title = 'Tersedia';
+  }
+}
+
+function setSemuaKetersediaan(tersedia) {
+  var slots = DATA.slots;
+  DATA.asesor.forEach(function(a) {
+    if (!DATA.asesorAktif.has(a.nama)) return;
+    if (tersedia) {
+      DATA.ketersediaan[a.nama] = new Set(slots.map(function(_,i){return i}));
+    } else {
+      DATA.ketersediaan[a.nama] = new Set();
+    }
+  });
+  renderKetersediaan();
+}
+
+function getKetersediaanAsesor(nama) {
+  return DATA.ketersediaan && DATA.ketersediaan[nama]
+    ? DATA.ketersediaan[nama]
+    : new Set(DATA.slots.map(function(_,i){return i}));
 }
 
 
