@@ -874,81 +874,84 @@ function generateKelompok() {
     var pool = grupKategori[kat].slice().sort(function(){return Math.random()-0.5});
     if (!pool.length) return;
 
-    // Bagi pool menjadi kelompok dengan unit kerja berbeda
-    // Hitung berapa kelompok optimal
     var n = pool.length;
-    var nKelompok = Math.ceil(n / MAX);
-    // Pastikan tiap kelompok min MIN (kecuali kalau total peserta < MIN)
-    if (n >= MIN) {
-      // Coba cari nKelompok yang menghasilkan semua kelompok >= MIN
-      while (nKelompok > 1 && Math.floor(n / nKelompok) < MIN) nKelompok--;
+
+    // Kalau total < MIN, masukkan semua ke 1 kelompok saja
+    if (n < MIN) {
+      kelompokList.push(pool.slice());
+      return;
     }
 
-    // Buat nKelompok slot kosong
-    var slots = [];
-    for (var i = 0; i < nKelompok; i++) slots.push([]);
+    // Hitung jumlah kelompok optimal agar semua >= MIN
+    var nKelompok = Math.ceil(n / MAX);
+    while (nKelompok > 1 && Math.floor(n / nKelompok) < MIN) nKelompok--;
 
-    // Assign peserta ke slot dengan syarat unit kerja berbeda
     // Urutkan pool berdasarkan unit kerja agar distribusi merata
     pool.sort(function(a,b){
       var ua = (a.unit||'').trim(), ub = (b.unit||'').trim();
       return ua < ub ? -1 : ua > ub ? 1 : 0;
     });
 
-    // Round-robin dengan cek unit kerja
-    var placed = new Set();
-    var maxPass = pool.length * nKelompok;
-    var pass = 0;
+    // Buat slot kosong
+    var slots = [];
+    for (var i = 0; i < nKelompok; i++) slots.push([]);
 
+    // PASS 1: Round-robin dengan cek unit kerja, max slot
+    var placed = new Set();
+    var maxPass = pool.length * nKelompok * 2;
+    var pass = 0;
     while (placed.size < pool.length && pass < maxPass) {
       pool.forEach(function(p){
         if (placed.has(p.nama)) return;
-        // Cari slot yang unit kerjanya belum ada & belum penuh
         for (var si = 0; si < slots.length; si++) {
           var slot = slots[si];
           if (slot.length >= MAX) continue;
           var unitOk = !slot.some(function(m){
             return (m.unit||'').trim() === (p.unit||'').trim() && (p.unit||'').trim() !== '';
           });
-          if (unitOk) {
-            slot.push(p); placed.add(p.nama); break;
-          }
+          if (unitOk) { slot.push(p); placed.add(p.nama); break; }
         }
       });
       pass++;
     }
 
-    // Peserta yang tidak bisa diassign
+    // PASS 2: Sisa yang belum placed — coba masukkan ke slot yang masih ada ruang
+    // (boleh unit sama, daripada tidak masuk kelompok sama sekali)
     pool.forEach(function(p){
-      if (!placed.has(p.nama)) unassigned.push(p);
+      if (placed.has(p.nama)) return;
+      // Cari slot dengan ruang, prioritaskan yang paling sedikit isinya
+      var target = null, minLen = MAX + 1;
+      slots.forEach(function(slot){
+        if (slot.length < MAX && slot.length < minLen) {
+          minLen = slot.length; target = slot;
+        }
+      });
+      if (target) { target.push(p); placed.add(p.nama); }
+      else unassigned.push(p);
     });
 
-    // Cek kelompok yang terlalu kecil — gabungkan jika < MIN dan ada kelompok lain
+    // Gabungkan kelompok kecil (< MIN) ke kelompok lain jika bisa
     var validSlots = [], tooSmall = [];
     slots.forEach(function(s){
-      if (s.length > 0 && s.length < MIN && slots.filter(function(x){return x.length>0}).length > 1) {
-        tooSmall.push(s);
-      } else if (s.length > 0) {
-        validSlots.push(s);
-      }
+      if (s.length > 0 && s.length < MIN) tooSmall.push(s);
+      else if (s.length > 0) validSlots.push(s);
     });
-    // Coba merge kelompok kecil ke yang valid (jika unit masih berbeda)
+
     tooSmall.forEach(function(small){
       small.forEach(function(p){
-        var merged = false;
-        for (var vi = 0; vi < validSlots.length; vi++) {
-          var vs = validSlots[vi];
-          if (vs.length >= MAX) continue;
-          var unitOk = !vs.some(function(m){
-            return (m.unit||'').trim()===(p.unit||'').trim() && (p.unit||'').trim()!=='';
-          });
-          if (unitOk) { vs.push(p); merged=true; break; }
-        }
-        if (!merged) unassigned.push(p);
+        // Cari kelompok yang masih muat
+        var target = null, minLen = MAX + 1;
+        validSlots.forEach(function(vs){
+          if (vs.length < MAX && vs.length < minLen) {
+            minLen = vs.length; target = vs;
+          }
+        });
+        if (target) target.push(p);
+        else { validSlots.push([p]); } // buat kelompok baru jika terpaksa
       });
     });
 
-    validSlots.forEach(function(s){ if(s.length>0) kelompokList.push(s); });
+    validSlots.forEach(function(s){ if(s.length > 0) kelompokList.push(s); });
   });
 
   DATA.kelompokList = kelompokList;
